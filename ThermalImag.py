@@ -63,13 +63,38 @@ class ThermalImg:
     def __str__(self):
         return f"The Img Path is: '{self.imgPath}'"
     
-    def findBats(self):
-        batDepthMin, batDepthMax = 50, 400
-        imgs = zip(self.allImgs, self.allImgsAug)
-        for img in imgs:
-            blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
-            croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
-            self.bats.extend(croppedBats)
+    def findCountours(self):
+        pass
+
+    def findBats(self, batDepthMin = 50, batDepthMax = 400, contours = False):
+        if not contours:
+            imgs = zip(self.allImgs, self.allImgsAug)
+            for img in imgs:
+                blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
+                croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
+                self.bats.extend(croppedBats)
+        else:
+            learner = Learner('model.pkl')
+            allImgBefore =[]
+            allImgAfter = []
+            imgs = zip(self.allImgs, self.allImgsAug)
+            for img in imgs:
+                blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
+                before = img[0].copy()
+                after = img[0].copy()
+                for blob in blobs:
+                    if batDepthMin < cv.contourArea(blob) < batDepthMax:  # Only process blobs with a min / max size 
+                        cv.drawContours(before, [np.int0(cv.boxPoints(cv.minAreaRect(blob)))], 0, (0,0,255),1)
+                        croppedBat = crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob))))
+                        probs = learner.predictOne(croppedBat.getImg())
+                        p_not_bat=f"{probs[0]:.4f}"
+                        p_bat=f"{probs[1]:.4f}"
+                        if p_not_bat < '0.9' and p_bat > '0.5':
+                            cv.drawContours(after, [np.int0(cv.boxPoints(cv.minAreaRect(blob)))], 0, (0,0,255),1)
+                allImgBefore.append(before)
+                allImgAfter.append(after)
+            displayImg(allImgBefore)
+            displayImg(allImgAfter)
     
 
 def crop_bat(img, box):
@@ -95,18 +120,15 @@ def crop_bat(img, box):
         crop_y2 = 640 
     
     bat_crop = img[crop_x1: crop_x2, crop_y1: crop_y2]
-    bat = Bat(bat_crop, img, box)
+    bat = Bat(bat_crop)
     return bat
 
 class BatDetector:
     """Class that takes name of a trained model .pkl file as a string for param1, an array of Bat objects as param2, 
         param3 is boolean to determine if OS is on Windows or Linux, default is true for Win. and boolean to determine if cpu is being used for param4(default is true)"""
 
-    def __init__(self, model, bats, onWin = True, cpu = True):
-        if onWin:
-            temp = pathlib.PosixPath
-            pathlib.PosixPath = pathlib.WindowsPath
-        self.learner = load_learner(model, cpu)
+    def __init__(self, learner, bats):
+        self.learner = learner
         self.bats = bats
         self.results = []
         self.filteredResults = []
@@ -129,35 +151,27 @@ class BatDetector:
         """Takes confidence thresholds in decimal format as a string.
             param1 = confidence img is not a bat. param2 = confidence img is a bat"""
         self.filteredResults = filter(lambda x: (x[0] < notBatCon and x[1] > isBatCon), self.results)
-
-    def showBatsBefore(self, allImgs):
-        imgsBefore = allImgs.copy()
-        for img in imgsBefore:
-            for bat in self.bats:
-                if bat.getOriginalImg() == img:
-                    cv.drawContours(img, bat.getBox(), 0, (0, 0, 255), 1)
-        return imgsBefore
     
-    def showBatsAfter(self):
+class Learner:
+    def __init__(self, model, onWin = True, cpu = True):
+        if onWin:
+            temp = pathlib.PosixPath
+            pathlib.PosixPath = pathlib.WindowsPath
+        self.learn = load_learner(model, cpu)
 
- 
+    def predictOne(self, bat):
+        with self.learn.no_bar(), self.learn.no_logging():
+                _, _, probs = self.learn.predict(bat)
+        return probs
 
 class Bat:
     """Class that describes an instance of a bat. Takes the cropped bat image as its first parameter"""
 
-    def __init__(self, croppedImg, originalImg, box):
+    def __init__(self, croppedImg):
         self.img = croppedImg
-        self.originalImg = originalImg
-        self.box = box
 
     def getImg(self):
         return self.img
-
-    def getOriginalImg(self):
-        return self.originalImg
-
-    def getBox(self):
-        return self.box
 
 def displayImg(allImgs):
     img_row_1 = cv.hconcat([allImgs[0],allImgs[1],allImgs[2]])
@@ -172,11 +186,10 @@ print("Finding bats...")
 thermalImg = ThermalImg(userInput)
 thermalImg.chopImg()
 thermalImg.augImg()
-thermalImg.findBats()
-batDetector = BatDetector('model.pkl', thermalImg.bats)
+thermalImg.findBats(contours = False)
+learner = Learner('model.pkl')
+batDetector = BatDetector(learner.learn, thermalImg.bats)
 batDetector.calculateProbs()
-batDetector.filterBatCount('0.5', '0.75')
-contourImgs = batDetector.showBatsBefore(thermalImg.allImgs)
-displayImg(contourImgs)
+batDetector.filterBatCount('0.9', '0.75')
 print(batDetector.getCount(), batDetector.getFilteredCount())
 
