@@ -3,6 +3,9 @@
 
 import cv2 as cv
 import numpy as np
+from fastai.vision.all import load_learner
+import pathlib
+import time
 
 class ThermalImg:
     """ This is a class that will create an instance of a thermal img  """
@@ -67,6 +70,9 @@ class ThermalImg:
             blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
             croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
             self.bats.extend(croppedBats)
+    
+    def showContours(self):
+        pass
 
 def crop_bat(img, box):
     x1, y1, x2, y2, x3, y3, x4, y4 = int(box[0][1]), int(box[0][0]), int(box[1][1]), int(box[1][0]), int(box[2][1]), int(box[2][0]), int(box[3][1]), int(box[3][0])
@@ -91,18 +97,59 @@ def crop_bat(img, box):
         crop_y2 = 640 
     
     bat_crop = img[crop_x1: crop_x2, crop_y1: crop_y2]
+    bat = Bat(bat_crop)
+    return bat
 
-    return bat_crop
+class BatDetector:
+    """Class that takes name of a trained model .pkl file as a string for param1, an array of Bat objects as param2, 
+        param3 is boolean to determine if OS is on Windows or Linux, default is true for Win. and boolean to determine if cpu is being used for param4(default is true)"""
+
+    def __init__(self, model, bats, onWin = True, cpu = True):
+        if onWin:
+            temp = pathlib.PosixPath
+            pathlib.PosixPath = pathlib.WindowsPath
+        self.learner = load_learner(model, cpu)
+        self.bats = bats
+        self.results = []
+        self.filteredResults = []
+    
+    def getCount(self):
+        return len(self.bats)
+
+    def getFilteredCount(self):
+        return len(list(self.filteredResults))
+
+    def calculateProbs(self):
+        start = time.time()
+        for bat in self.bats:
+            with self.learner.no_bar(), self.learner.no_logging():
+                _, _, probs = self.learner.predict(bat.getImg())
+                self.results.append(tuple(map(lambda x: f"{x:.4f}", probs)))
+        print(f"It took {time.time()-start:.4f} seconds to calculate probs")
+    
+    def filterBatCount(self, notBatCon, isBatCon):
+        """Takes confidence thresholds in decimal format as a string.
+            param1 = confidence img is not a bat. param2 = confidence img is a bat"""
+        self.filteredResults = filter(lambda x: (x[0] < notBatCon and x[1] > isBatCon), self.results)
+ 
 
 class Bat:
-    pass
+    """Class that describes an instance of a bat. Takes the cropped bat image as its first parameter"""
+
+    def __init__(self, croppedImg):
+        self.img = croppedImg
+
+    def getImg(self):
+        return self.img
 
 userInput = input("Enter Img Path: ")
+print("Finding bats...")
 thermalImg = ThermalImg(userInput)
 thermalImg.chopImg()
 thermalImg.augImg()
 thermalImg.findBats()
-for i in range(len(thermalImg.bats)):
-    if i < 10:
-        cv.imshow("bat i", thermalImg.bats[i])
-        cv.waitKey(0)
+batDetector = BatDetector('model.pkl', thermalImg.bats)
+batDetector.calculateProbs()
+batDetector.filterBatCount('0.5', '0.75')
+print(batDetector.getCount(), batDetector.getFilteredCount())
+
