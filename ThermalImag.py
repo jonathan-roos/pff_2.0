@@ -8,7 +8,7 @@ import pathlib
 import time
 
 class ThermalImg:
-    """ This is a class that will create an instance of a thermal img  """
+    """ This is a class that will create an instance of a thermal img object. Takes the path to thermal img as a string as param1 """
     width, height = 640,512
 
     def __init__(self, imgPath):
@@ -71,8 +71,6 @@ class ThermalImg:
             croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
             self.bats.extend(croppedBats)
     
-    def showContours(self):
-        pass
 
 def crop_bat(img, box):
     x1, y1, x2, y2, x3, y3, x4, y4 = int(box[0][1]), int(box[0][0]), int(box[1][1]), int(box[1][0]), int(box[2][1]), int(box[2][0]), int(box[3][1]), int(box[3][0])
@@ -97,7 +95,7 @@ def crop_bat(img, box):
         crop_y2 = 640 
     
     bat_crop = img[crop_x1: crop_x2, crop_y1: crop_y2]
-    bat = Bat(bat_crop)
+    bat = Bat(bat_crop, img, box)
     return bat
 
 class BatDetector:
@@ -131,16 +129,43 @@ class BatDetector:
         """Takes confidence thresholds in decimal format as a string.
             param1 = confidence img is not a bat. param2 = confidence img is a bat"""
         self.filteredResults = filter(lambda x: (x[0] < notBatCon and x[1] > isBatCon), self.results)
+
+    def showBatsBefore(self, allImgs):
+        imgsBefore = allImgs.copy()
+        for img in imgsBefore:
+            for bat in self.bats:
+                if bat.getOriginalImg() == img:
+                    cv.drawContours(img, bat.getBox(), 0, (0, 0, 255), 1)
+        return imgsBefore
+    
+    def showBatsAfter(self):
+
  
 
 class Bat:
     """Class that describes an instance of a bat. Takes the cropped bat image as its first parameter"""
 
-    def __init__(self, croppedImg):
+    def __init__(self, croppedImg, originalImg, box):
         self.img = croppedImg
+        self.originalImg = originalImg
+        self.box = box
 
     def getImg(self):
         return self.img
+
+    def getOriginalImg(self):
+        return self.originalImg
+
+    def getBox(self):
+        return self.box
+
+def displayImg(allImgs):
+    img_row_1 = cv.hconcat([allImgs[0],allImgs[1],allImgs[2]])
+    img_row_2 = cv.hconcat([allImgs[3],allImgs[4],allImgs[5]])
+    img_row_3 = cv.hconcat([allImgs[6],allImgs[7],allImgs[8]])
+    img_concat = cv.resize(cv.vconcat([img_row_1, img_row_2, img_row_3]), (960, 768))
+    cv.imshow("contours", img_concat)
+    cv.waitKey(0)
 
 userInput = input("Enter Img Path: ")
 print("Finding bats...")
@@ -151,5 +176,7 @@ thermalImg.findBats()
 batDetector = BatDetector('model.pkl', thermalImg.bats)
 batDetector.calculateProbs()
 batDetector.filterBatCount('0.5', '0.75')
+contourImgs = batDetector.showBatsBefore(thermalImg.allImgs)
+displayImg(contourImgs)
 print(batDetector.getCount(), batDetector.getFilteredCount())
 
