@@ -18,6 +18,12 @@ class ThermalImg:
         self.allImgsAug = []
         self.bats = []
 
+    def getBats(self):
+        bats = []
+        for segment in self.bats:
+            bats.extend(segment)
+        return bats
+
     def getPath(self):
         return self.imgPath
     
@@ -49,15 +55,19 @@ class ThermalImg:
                 j += 1
             i += 1
 
-    def augImg(self):
+    def augImg(self, dilate = True):
         for img in self.allImgs:
             kernel = np.ones((5, 5), np.uint8)
             imgGray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)  # convert to grayscale
             imgBlur = cv.GaussianBlur(imgGray, (5, 5), 0)  # apply gaussian blur
             imgThresh = cv.adaptiveThreshold(  # apply adaptive threshold
             imgBlur, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 7, 5)
-            imgDilation = cv.dilate(imgThresh, kernel, iterations=0)  # apply dilation to amplify threshold result
-            self.allImgsAug.append(imgDilation)
+            if dilate:
+                imgDilation = cv.dilate(imgThresh, kernel, iterations=1)  # apply dilation to amplify threshold result
+                self.allImgsAug.append(imgDilation)
+            else:
+                imgDilation = cv.dilate(imgThresh, kernel, iterations=0)  # apply dilation to amplify threshold result
+                self.allImgsAug.append(imgDilation)
 
     def __str__(self):
         return f"The Img Path is: '{self.imgPath}'"
@@ -65,43 +75,40 @@ class ThermalImg:
     def findCountours(self):
         pass
 
-    def findBats(self, batDepthMin = 50, batDepthMax = 400, contours = False):
-        if not contours:
-            imgs = zip(self.allImgs, self.allImgsAug)
-            for img in imgs:
-                blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
-                croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
-                self.bats.extend(croppedBats)
-        else:
-            learner = Learner('model.pkl')
-            allImgBefore =[]
-            allImgAfter = []
-            imgs = zip(self.allImgs, self.allImgsAug)
-            for img in imgs:
-                blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
-                before = img[0].copy()
-                after = img[0].copy()
-                for blob in blobs:
-                    if batDepthMin < cv.contourArea(blob) < batDepthMax:  # Only process blobs with a min / max size 
-                        cv.drawContours(before, [np.int0(cv.boxPoints(cv.minAreaRect(blob)))], 0, (0,0,255),1)
-                        croppedBat = crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob))))
-                        probs = learner.predictOne(croppedBat.getImg())
-                        p_not_bat=f"{probs[0]:.4f}"
-                        p_bat=f"{probs[1]:.4f}"
-                        if p_not_bat < '0.9' and p_bat > '0.5':
-                            cv.drawContours(after, [np.int0(cv.boxPoints(cv.minAreaRect(blob)))], 0, (0,0,255),1)
-                allImgBefore.append(before)
-                allImgAfter.append(after)
-            self.displayConts(allImgBefore)
-            self.displayConts(allImgAfter)
+    def findBats(self, batDepthMin = 50, batDepthMax = 400):
+        imgs = zip(self.allImgs, self.allImgsAug)
+        for img in imgs:
+            blobs = cv.findContours(img[1], cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)[-2]
+            croppedBats = [crop_bat(img[0], np.int0(cv.boxPoints(cv.minAreaRect(blob)))) for blob in blobs if batDepthMin < cv.contourArea(blob) < batDepthMax]
+            self.bats.append(croppedBats)
     
-    def displayConts(self, allImgs):
+    def showContours(self, both = False):
+        allImgs = []
+        for i in range(len(self.allImgs)):
+            img = self.allImgs[i].copy()
+            for bat in self.bats[i]:
+                if bat.probs[0] < '0.9' and bat.probs[1] > '0.75':
+                    cv.drawContours(img, [np.int0(cv.boxPoints(cv.minAreaRect(bat.box)))], 0, (0,0,255),1)
+            allImgs.append(img)
         img_row_1 = cv.hconcat([allImgs[0],allImgs[1],allImgs[2]])
         img_row_2 = cv.hconcat([allImgs[3],allImgs[4],allImgs[5]])
         img_row_3 = cv.hconcat([allImgs[6],allImgs[7],allImgs[8]])
         img_concat = cv.resize(cv.vconcat([img_row_1, img_row_2, img_row_3]), (960, 768))
         cv.imshow("contours", img_concat)
         cv.waitKey(0)
+        if both:
+            allImgsBefore = []
+            for i in range(len(self.allImgs)):
+                imgBefore = self.allImgs[i].copy()
+                for bat in self.bats[i]:
+                    cv.drawContours(imgBefore, [np.int0(cv.boxPoints(cv.minAreaRect(bat.box)))], 0, (0,0,255),1)
+                allImgsBefore.append(imgBefore)
+            img_row_before_1 = cv.hconcat([allImgsBefore[0],allImgsBefore[1],allImgsBefore[2]])
+            img_row_before_2 = cv.hconcat([allImgsBefore[3],allImgsBefore[4],allImgsBefore[5]])
+            img_row_before_3 = cv.hconcat([allImgsBefore[6],allImgsBefore[7],allImgsBefore[8]])
+            img_concat_before = cv.resize(cv.vconcat([img_row_before_1, img_row_before_2, img_row_before_3]), (960, 768))
+            cv.imshow("contours before", img_concat_before)
+            cv.waitKey(0)
     
 
 def crop_bat(img, box):
@@ -127,7 +134,7 @@ def crop_bat(img, box):
         crop_y2 = 640 
     
     bat_crop = img[crop_x1: crop_x2, crop_y1: crop_y2]
-    bat = Bat(bat_crop)
+    bat = Bat(bat_crop, box)
     return bat
 
 class BatDetector:
@@ -141,18 +148,26 @@ class BatDetector:
         self.filteredResults = []
     
     def getCount(self):
-        return len(self.bats)
+        count = 0
+        for segment in self.bats:
+            for bat in segment:
+                count += 1
+        return count
 
     def getFilteredCount(self):
         return len(list(self.filteredResults))
 
     def calculateProbs(self):
         start = time.time()
-        for bat in self.bats:
-            with self.learner.no_bar(), self.learner.no_logging():
-                _, _, probs = self.learner.predict(bat.getImg())
-                self.results.append(tuple(map(lambda x: f"{x:.4f}", probs)))
-        print(f"It took {time.time()-start:.4f} seconds to calculate probs")
+        for segment in self.bats:
+            for bat in segment:
+                with self.learner.no_bar(), self.learner.no_logging():
+                    _, _, probs = self.learner.predict(bat.img)
+                result = tuple(map(lambda x: f"{x:.4f}", probs))
+                self.results.append(result)
+                bat.probs = result
+                    
+        print(f"It took {time.time()-start:.2f} seconds to calculate probs")
     
     def filterBatCount(self, notBatCon, isBatCon):
         """Takes confidence thresholds in decimal format as a string.
@@ -174,8 +189,9 @@ class Learner:
 class Bat:
     """Class that describes an instance of a bat. Takes the cropped bat image as its first parameter"""
 
-    def __init__(self, croppedImg):
+    def __init__(self, croppedImg, box):
         self.img = croppedImg
+        self.box = box
 
     def getImg(self):
         return self.img
