@@ -212,6 +212,7 @@ class BatDetector:
         self.filteredResults = [] # will a list of the filtered results
     
     def getCount(self):
+        """ Count each bat in self.bats and return count """
         count = 0
         for segment in self.bats:
             for bat in segment:
@@ -219,14 +220,21 @@ class BatDetector:
         return count
 
     def getFilteredCount(self):
+        """ Return length of filteredResults """
         return len(list(self.filteredResults))
 
     def calculateProbs(self):
-        start = time.time() # create variable to time how long it takes to predict probs
+        """ 
+            Method that will calculate the probability of each cropped bat being a bat or not. 
+            Uses the model that is passed into self.learner for predictions.
+            Appends the resulting tuple (probs !bat, probs is bat) to self.results.
+            Also adds the resulting tuple to each corresponding Bat object.
+        """
+        start = time.time() # creates variable to time how long it takes to predict probs
         for segment in self.bats:
             for bat in segment:
                 with self.learner.no_bar(), self.learner.no_logging():
-                    _, _, probs = self.learner.predict(bat.img)
+                    _, _, probs = self.learner.predict(bat.img) # self.learner.predict is the method that makes the prediction
                 result = tuple(map(lambda x: f"{x:.4f}", probs))
                 self.results.append(result)
                 bat.probs = result
