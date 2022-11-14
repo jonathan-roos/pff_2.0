@@ -17,7 +17,7 @@ thermalImg.augImg() # Apply pre processing to each segment using class method au
 thermalImg.findBats() # Use class method finBats() to find contours in each segment
 
 # Create instance of a Learner object.
-learner = Learner('model.pkl') # Takes the name of the trained model file as a string
+learner = Learner('model_densenet_zeros.pkl') # Takes the name of the trained model file as a string
 
 # Create instance of a BatDetector and pass the loaded learner 
 # and the Bats found from using ThermalImg.findBats()
